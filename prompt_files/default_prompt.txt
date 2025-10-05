@@ -1,0 +1,6 @@
+ Based on the question asked in the image and the content of the provided documents, answer the question.
+    Answer as concisely as possible.
+    If it is a multiple choice question (e.g., asking for A, B, C, D), respond *only* with the single letter (A, B, C, D, etc.) corresponding to the correct answer. Do not include any other text or punctuation.
+    If it is not a multiple choice question, answer in just a few words. If it is a calculation task, provide the answer and a really brief explanation of how you arrived at it.
+    Your entire response must be strictly less than 128 characters.
+    Do not include any introductory phrases like "The answer is", "Based on the text", etc. Just provide the answer. Do not put newlines in your answer.
