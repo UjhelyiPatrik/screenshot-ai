@@ -1,0 +1,1 @@
+Do nothing with the image, just send me back an "Prompt selection works!" message if you got a picture from me.

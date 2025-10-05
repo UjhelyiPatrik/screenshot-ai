@@ -1,5 +1,6 @@
 import io
 import os
+import sys
 import pathlib
 import tempfile
 import requests
@@ -9,6 +10,12 @@ from google import genai
 
 from ansi import ansi
 from trayicon import TrayIcon
+
+# A script abszolút elérési útja
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Állítsd be a munkakönyvtárat a script mappájára
+os.chdir(script_dir)
 
 client = None
 
@@ -105,7 +112,7 @@ def upload_pdf_part(pdf_source):
         return None
     
 
-def create_gemini_contents(image_path, pdf_sources):
+def create_gemini_contents(image_path, pdf_sources, prompt_file_name):
     """
     Creates the list of content parts for the Gemini API call.
     Includes the image, uploaded PDF files, and the instruction prompt.
@@ -133,17 +140,35 @@ def create_gemini_contents(image_path, pdf_sources):
     else:
         print(ansi.WARNING_MSG + "No usable PDF files were uploaded from the provided sources.")
 
+    # 3. Add Instruction Prompt Part (Loaded from a file)
+
+    # set the prompt file name
+    if not prompt_file_name:
+        prompt_file_name = "default_prompt.txt"  # Default prompt file name if none provided
+    if not prompt_file_name.endswith(".txt"):
+        prompt_file_name += ".txt"
+
+    PROMPT_FILE = "../prompt_files/" + prompt_file_name
+    try:
+        with open(PROMPT_FILE, "r") as file:
+            instruction_prompt = file.read().strip()
+        if not instruction_prompt:
+            print(ansi.ERROR_MSG + f"Prompt file '{PROMPT_FILE}' is empty. Exiting.")
+            exit()
+        print(ansi.SUCCESS_MSG + "Prompt file loaded successfully.")
+        print(ansi.SUCCESS_MSG + "API key loaded successfully.")
+
+    except FileNotFoundError:
+        print(ansi.ERROR_MSG + f"Prompt file '{PROMPT_FILE}' not found.")
+        print("Please create a file named 'example.txt' in the prompt_files directory and paste your prompt inside.")
+        exit()
+    except Exception as e:
+        print(ansi.ERROR_MSG + f"An unexpected error occurred while loading the prompt file: {e}")
+        exit()
+
 
     # 3. Add the Final Instruction Text Part (Guides the model on how to respond)
-    instruction_prompt ="""
-    Based on the question asked in the image and the content of the provided documents, answer the question.
-    Answer as concisely as possible.
-    If it is a multiple choice question (e.g., asking for A, B, C, D), respond *only* with the single letter (A, B, C, D, etc.) corresponding to the correct answer. Do not include any other text or punctuation.
-    If it is not a multiple choice question, answer in as few words as possible.
-    Your entire response must be strictly less than 128 characters.
-    Do not include any introductory phrases like "The answer is", "Based on the text", etc. Just provide the answer. Do not put newlines in your answer.
-    """
-    contents.append(instruction_prompt.strip())
+    contents.append(instruction_prompt)
     print(ansi.SUCCESS_MSG + "Instruction prompt added.")
 
     # Basic check: Do we have at least the image and instruction prompt?
@@ -205,7 +230,7 @@ def call_gemini_multimodal(contents, selected_model):
 
         return None
     
-def process_question(trayicon: TrayIcon, pdf_sources_list, selected_model):
+def process_question(trayicon: TrayIcon, pdf_sources_list, selected_model, prompt_file_name):
     # Take a screenshot of the current screen
     image_path = take_screenshot()
     if not os.path.exists(image_path):
@@ -216,7 +241,7 @@ def process_question(trayicon: TrayIcon, pdf_sources_list, selected_model):
     print(ansi.INFO_MSG + "Preparing content for Gemini...")
 
     trayicon.set_loading()
-    contents = create_gemini_contents(image_path, pdf_sources_list)
+    contents = create_gemini_contents(image_path, pdf_sources_list, prompt_file_name)
 
     tokens_used = 0
     if contents:

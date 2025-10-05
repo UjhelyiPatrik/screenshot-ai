@@ -1,5 +1,6 @@
 import ctypes
 from datetime import date
+import os
 import sys
 import time
 import keyboard
@@ -11,6 +12,12 @@ from ansi import ansi
 import gemini
 import token_db
 from ui import UI, LogRedirector
+
+# A script abszolút elérési útja
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Állítsd be a munkakönyvtárat a script mappájára
+os.chdir(script_dir)
 
 # --- Global State ---
 quitting = False
@@ -166,7 +173,8 @@ def process_question_handler():
         tokens_used = gemini.process_question(
             trayicon,
             pdf_sources_list,
-            selected_model
+            selected_model,
+            prompt_file_name
         )
 
         if tokens_used > 0:
@@ -252,6 +260,15 @@ def get_token_usage():
 
 
 if __name__ == "__main__":
+
+    # --- Prompt fájl beolvasása parancssorból ---
+    if len(sys.argv) > 1:
+        prompt_file_name = sys.argv[1]
+        print(ansi.INFO_MSG + f"Prompt file: {prompt_file_name}")
+    else:
+        prompt_file_name = "default_prompt.txt"
+        print(ansi.WARNING_MSG + f"Nem adtál meg prompt fájlt, alapértelmezett: {prompt_file_name}")
+
     # Ensure Gemini client is initialized by importing gemini module
     if gemini.client is None:
         # This condition should only be true if gemini.py failed to init and exited

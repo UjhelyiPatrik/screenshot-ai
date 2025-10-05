@@ -4,3 +4,4 @@ source/__pycache__/*
 mouse_positions.txt
 apikey.txt
 token_usage.json
+prompt_files/cisconet.txt
