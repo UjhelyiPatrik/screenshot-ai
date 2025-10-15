@@ -111,6 +111,7 @@ function ansiToHtml(text) {
 // Function called by Python to set the initial state
 function setInitialState(state) {
     console.log("JS: Received initial state:", state);
+
     currentPdfSources = state.pdfSources || [];
     populatePdfList();
 
@@ -118,6 +119,13 @@ function setInitialState(state) {
     populateModelSelect(availableModels, state.selectedModel);
 
     updateTokenDisplay(state.tokenUsage.total, state.tokenUsage.daily[getTodayDateString()] || 0);
+
+    // Set the initial listening state
+    if (state.isListening) {
+        setUIState('listening');
+    } else {
+        setUIState('configuring');
+    }
 
     // Set initial UI state based on how the app starts (likely configuring initially)
     // setUIState('configuring'); // Assuming it starts in configuring mode

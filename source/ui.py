@@ -49,7 +49,7 @@ class LogRedirector(object):
 
 
 class UI:
-    def __init__(self, main_app_callbacks, hidden=False):
+    def __init__(self, main_app_callbacks, hidden=False, listening=False):
         """
         Initializes the UI window and communication bridge.
         Args:
@@ -60,6 +60,7 @@ class UI:
         self.log_redirector = LogRedirector(self.log_queue)
         self._log_thread = None
         self._log_thread_running = False
+        self.initial_listening_state = listening # Store initial state
 
         # Store callbacks from the main application
         self.main_app_callbacks = main_app_callbacks
@@ -169,11 +170,18 @@ class UI:
                 'availableModels': self.main_app_callbacks['get_available_models'](),
                 'selectedModel': self.main_app_callbacks['get_selected_model'](),
                 'tokenUsage': self.main_app_callbacks['get_token_usage'](),
+                'isListening': self.initial_listening_state, # Pass the initial listening state
                 # UI state (listening/configuring) should be handled by main.py and sent via update_ui_state
             }
             # Call a JS function to apply this initial state
             self.window.evaluate_js(f'setInitialState({json.dumps(initial_state)})')
             print(UI_MSG + "Sent initial state to JS.")
+
+            # If the app was meant to start listening, trigger the callback now that the UI is ready
+            if self.initial_listening_state:
+                print(UI_MSG + "Initial listening state is true, calling start_listening callback.")
+                self.main_app_callbacks['start_listening']()
+                
         except Exception as e:
             print(ansi.ERROR_MSG + f"Error sending initial state to JS: {e}")
 

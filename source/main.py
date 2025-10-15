@@ -23,6 +23,7 @@ os.chdir(script_dir)
 # --- Global State ---
 quitting = False
 is_listening = False # Track if hotkeys are active
+should_start_listening = False # Flag to start listening automatically
 is_hidden = False # Track if UI is hidden
 pdf_sources_list = [] # List of PDF paths/URLs
 selected_model = None # Default model
@@ -312,6 +313,7 @@ if __name__ == "__main__":
     if "-i" in args or "--invisible" in args:
         print(ansi.INFO_MSG + "Starting in invisible mode.")
         is_hidden = True
+        should_start_listening = True # Start listening automatically
         if "-i" in args: args.remove("-i")
         if "--invisible" in args: args.remove("--invisible")
 
@@ -357,7 +359,7 @@ if __name__ == "__main__":
     }
 
     try:
-        ui_app = UI(main_app_callbacks=ui_callbacks, hidden=is_hidden)
+        ui_app = UI(main_app_callbacks=ui_callbacks, hidden=is_hidden, listening=should_start_listening)
         print(ansi.SUCCESS_MSG + "UI initialized.")
 
         # Note: ui_app.start_ui() includes the webview.start() blocking call
