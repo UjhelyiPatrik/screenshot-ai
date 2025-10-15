@@ -82,7 +82,7 @@ class TrayIcon:
 
         # Create a new icon
         self.icon = pystray.Icon("Gemini Answer")
-        self.icon.icon = self.create_image("...", color="orange")
+        self.icon.icon = self.create_image("...", color="navy")
         self.icon.title = "Loading..."
 
         # Create a right-click menu

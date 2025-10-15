@@ -49,7 +49,7 @@ class LogRedirector(object):
 
 
 class UI:
-    def __init__(self, main_app_callbacks):
+    def __init__(self, main_app_callbacks, hidden=False):
         """
         Initializes the UI window and communication bridge.
         Args:
@@ -84,7 +84,7 @@ class UI:
             width=800,
             height=600,
             resizable=True,
-            hidden=False,
+            hidden=hidden,
         )
 
         self.window.expose(self.browse_pdf)

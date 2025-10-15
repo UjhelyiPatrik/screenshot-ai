@@ -6,6 +6,7 @@ import time
 import keyboard
 import win32con
 import win32gui
+import re
 
 from trayicon import TrayIcon
 from ansi import ansi
@@ -24,7 +25,7 @@ quitting = False
 is_listening = False # Track if hotkeys are active
 is_hidden = False # Track if UI is hidden
 pdf_sources_list = [] # List of PDF paths/URLs
-selected_model = "models/gemini-2.5-flash-preview-04-17-thinking" # Default model
+selected_model = None # Default model
 token_data = {} # Dictionary to store token usage loaded from token_db
 hwnd = None # Handle for the console window
 
@@ -258,22 +259,77 @@ def get_token_usage():
         token_data = token_db.load_token_data()
     return token_data
 
+def select_newest_flash_model():
+    """
+    Queries available Gemini models and selects the newest 'flash' model.
+    Sets the global 'selected_model' variable.
+    """
+    global selected_model
+    fallback_model = "models/gemini-2.5-flash"
+    print(ansi.INFO_MSG + "Attempting to select the newest Gemini flash model...")
+
+    if gemini.client is None:
+        print(ansi.ERROR_MSG + "Gemini client not initialized. Using fallback model.")
+        selected_model = fallback_model
+        return
+
+    try:
+        all_models = gemini.client.models.list()
+        # Filter for models that support 'generateContent' and match 'flash' pattern
+        pattern = r"^models/gemini-\d+\.\d+-flash$"
+        flash_models = [
+            m for m in all_models
+            if 'generateContent' in m.supported_actions and re.match(pattern, m.name)
+        ]
+
+        if not flash_models:
+            print(ansi.WARNING_MSG + "No 'flash' models found. Using fallback model.")
+            selected_model = fallback_model
+            return
+
+        # Sort models by name in descending order to get the newest one first.
+        # This assumes newer models have lexicographically greater names (e.g., "model-2" > "model-1").
+        flash_models.sort(key=lambda m: m.name, reverse=True)
+        
+        newest_model = flash_models[0].name
+        print(ansi.SUCCESS_MSG + f"Automatically selected newest flash model: {newest_model}")
+        selected_model = newest_model
+
+    except Exception as e:
+        print(ansi.ERROR_MSG + f"Failed to fetch or select newest model: {e}")
+        print(ansi.WARNING_MSG + f"Using fallback model: {fallback_model}")
+        selected_model = fallback_model
+
+
 
 if __name__ == "__main__":
 
     # --- Prompt fájl beolvasása parancssorból ---
-    if len(sys.argv) > 1:
-        prompt_file_name = sys.argv[1]
-        print(ansi.INFO_MSG + f"Prompt file: {prompt_file_name}")
+    prompt_file_name = "default_prompt.txt" # Default value
+    args = sys.argv[1:] # Get arguments excluding script name
+
+    # Check for invisible flag
+    if "-i" in args or "--invisible" in args:
+        print(ansi.INFO_MSG + "Starting in invisible mode.")
+        is_hidden = True
+        if "-i" in args: args.remove("-i")
+        if "--invisible" in args: args.remove("--invisible")
+
+    # The remaining argument should be the prompt file
+    if len(args) > 0:
+        prompt_file_name = args[0]
+        print(ansi.INFO_MSG + f"Prompt file set to: {prompt_file_name}")
     else:
-        prompt_file_name = "default_prompt.txt"
-        print(ansi.WARNING_MSG + f"Nem adtál meg prompt fájlt, alapértelmezett: {prompt_file_name}")
+        print(ansi.WARNING_MSG + f"No prompt file specified, using default: {prompt_file_name}")
 
     # Ensure Gemini client is initialized by importing gemini module
     if gemini.client is None:
         # This condition should only be true if gemini.py failed to init and exited
         print(ansi.ERROR_MSG + "Gemini client initialization failed. Exiting...")
         sys.exit(1)
+
+    # Automatically select the best model before initializing UI
+    select_newest_flash_model()
 
     # Load existing token usage data
     token_data = token_db.load_token_data()
@@ -301,7 +357,7 @@ if __name__ == "__main__":
     }
 
     try:
-        ui_app = UI(main_app_callbacks=ui_callbacks)
+        ui_app = UI(main_app_callbacks=ui_callbacks, hidden=is_hidden)
         print(ansi.SUCCESS_MSG + "UI initialized.")
 
         # Note: ui_app.start_ui() includes the webview.start() blocking call
