@@ -4,4 +4,6 @@ source/__pycache__/*
 mouse_positions.txt
 apikey.txt
 token_usage.json
-prompt_files/cisconet.txt
+prompt_files/*
+!prompt_files/default_prompt.txt
+!prompt_files/test.txt
