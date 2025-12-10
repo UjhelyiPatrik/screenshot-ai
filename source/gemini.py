@@ -19,24 +19,111 @@ os.chdir(script_dir)
 
 client = None
 
-API_KEY_FILE = "../apikey.txt"
-try:
-    with open(API_KEY_FILE, "r") as file:
-        key = file.read().strip()
-    if not key:
-        print(ansi.ERROR_MSG + f"API key file '{API_KEY_FILE}' is empty. Exiting.")
-        exit()
-    
-    client = genai.Client(api_key=key)
-    print(ansi.SUCCESS_MSG + "API key loaded successfully.")
+API_KEY_FILE = "../apikeys.txt"
+api_keys = []
+last_index = -1
 
-except FileNotFoundError:
-    print(ansi.ERROR_MSG + f"API key file '{API_KEY_FILE}' not found.")
-    print("Please create a file named 'apikey.txt' in the same directory and paste your API key inside.")
-    exit()
+def _parse_last_index_line(line: str) -> int:
+    """
+    Parses the header line '# last_index=N' and returns N, or -1 if invalid.
+    """
+    line = line.strip()
+    if line.startswith("#") and "last_index=" in line:
+        try:
+            return int(line.split("last_index=")[1].strip())
+        except Exception:
+            return -1
+    return -1
+
+def _read_api_keys_with_header(path: str):
+    """
+    Reads the header '# last_index=N' and all API keys (one per line) from the file.
+    Returns (last_index, keys).
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"API key file '{path}' not found.")
+
+    with open(path, "r", encoding="utf-8") as f:
+        lines = [l.strip() for l in f.readlines() if l.strip()]
+
+    if not lines:
+        raise ValueError(f"API key file '{path}' is empty.")
+
+    # Check first line for header
+    first_line = lines[0]
+    li = _parse_last_index_line(first_line)
+
+    # Filter keys: ignore lines starting with '#' to avoid reading headers/comments as keys
+    keys = [line for line in lines if not line.startswith("#")]
+
+    if not keys:
+        raise ValueError(f"API key file '{path}' contains no valid API keys.")
+
+    # Clamp last_index to valid range
+    if li < -1 or li >= len(keys):
+        li = -1
+
+    return li, keys
+
+def _write_last_index_header(path: str, last_idx: int, keys: list[str]):
+    """
+    Writes back the header '# last_index=N' and the keys into the file.
+    """
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"# last_index={last_idx}\n")
+            for k in keys:
+                f.write(k + "\n")
+    except Exception as e:
+        print(ansi.ERROR_MSG + f"Failed to update '{path}' with last_index={last_idx}: {e}")
+
+def _init_client_with_index(idx: int):
+    """
+    Initializes the Gemini client with the API key at index idx.
+    """
+    global client
+    key = api_keys[idx]
+    client = genai.Client(api_key=key)
+
+# Load keys and initialize client
+try:
+    last_index, api_keys = _read_api_keys_with_header(API_KEY_FILE)
+    # Use the next key after last_index for initial client setup
+    initial_idx = (last_index + 1) % len(api_keys)
+    _init_client_with_index(initial_idx)
+    print(ansi.SUCCESS_MSG + f"Loaded {len(api_keys)} API keys. Initialized with key index: {initial_idx}.")
+
+except FileNotFoundError as e:
+    print(ansi.ERROR_MSG + str(e))
+    print("Please create 'apikeys.txt' in the parent directory with one key per line.")
+    sys.exit(1)
 except Exception as e:
-    print(ansi.ERROR_MSG + f"An unexpected error occurred while loading the API key: {e}")
-    exit()
+    print(ansi.ERROR_MSG + f"Error loading API keys: {e}")
+    sys.exit(1)
+
+
+def rotate_api_key_and_persist():
+    """
+    Advances to the next API key cyclically and persists the new last_index in apikeys.txt.
+    Also re-initializes the client with the new key.
+    """
+    global last_index, api_keys
+    
+    if not api_keys:
+        print(ansi.ERROR_MSG + "No API keys available to rotate.")
+        return
+
+    try:
+        next_index = (last_index + 1) % len(api_keys)
+        _init_client_with_index(next_index)
+        
+        # Persist the newly used index as last_index
+        last_index = next_index
+        _write_last_index_header(API_KEY_FILE, last_index, api_keys)
+        
+        print(ansi.INFO_MSG + f"Switched to API key #{next_index + 1} (Index: {next_index})")
+    except Exception as e:
+        print(ansi.ERROR_MSG + f"Failed to rotate and persist API key: {e}")
 
 
 def take_screenshot():
@@ -231,6 +318,9 @@ def call_gemini_multimodal(contents, selected_model):
         return None
     
 def process_question(trayicon: TrayIcon, pdf_sources_list, selected_model, prompt_file_name):
+    # Rotate API key before processing
+    rotate_api_key_and_persist()
+
     # Take a screenshot of the current screen
     image_path = take_screenshot()
     if not os.path.exists(image_path):
