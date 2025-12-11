@@ -2,7 +2,7 @@ __pycache__/*
 source/__pycache__/*
 *.zip
 mouse_positions.txt
-apikey.txt
+apikeys.txt
 token_usage.json
 prompt_files/*
 !prompt_files/default_prompt.txt
