@@ -52,6 +52,7 @@ class AppControllerProtocol(Protocol):
     def remove_api_key(self, key: str) -> bool: ...
     def get_log_level(self) -> str: ...
     def set_log_level(self, level: str) -> bool: ...
+    def get_response_time_stats(self) -> dict: ...
     def get_initial_state(self) -> dict: ...
 
 
@@ -88,6 +89,7 @@ class AppCallbacks:
     remove_api_key: Callable[[str], bool]
     get_log_level: Callable[[], str]
     set_log_level: Callable[[str], bool]
+    get_response_time_stats: Callable[[], dict]
     get_initial_state: Callable[[], dict]
 
 
@@ -184,6 +186,9 @@ class UI:
         def set_log_level(level: str) -> bool:
             return callbacks.set_log_level(level)
 
+        def get_response_time_stats() -> dict:
+            return callbacks.get_response_time_stats()
+
         def toggle_ui_visibility() -> None:
             callbacks.toggle_ui_visibility()
 
@@ -210,6 +215,7 @@ class UI:
             remove_api_key,
             get_log_level,
             set_log_level,
+            get_response_time_stats,
             toggle_ui_visibility,
             get_initial_state,
         )

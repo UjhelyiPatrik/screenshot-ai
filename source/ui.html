@@ -246,6 +246,10 @@
                     <i class="fas fa-key text-xs"></i> API Keys
                     <span id="keys-count" class="px-1.5 py-0.2 bg-gray-200 text-gray-700 rounded-full text-xs font-normal">0</span>
                 </button>
+                <button id="tab-btn-response-times" onclick="switchTab('response-times')"
+                    class="px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex items-center gap-2 transition">
+                    <i class="fas fa-stopwatch text-xs"></i> Response Times
+                </button>
             </div>
 
             <!-- Tab Content: Logs -->
@@ -316,6 +320,137 @@
                 <!-- API Keys List / Table -->
                 <div id="api-keys-list" class="space-y-2 max-h-56 overflow-y-auto pr-1">
                     <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Tab Content: Response Times (Lazy Loaded) -->
+            <div id="tab-content-response-times" class="hidden space-y-3">
+                <!-- Top controls: Period selector pills & Refresh button -->
+                <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-gray-200">
+                    <div class="flex items-center gap-1.5 bg-gray-200/80 p-1 rounded-lg">
+                        <button type="button" onclick="setResponseTimePeriod('today')" id="resp-period-today"
+                            class="px-3 py-1 rounded-md text-xs font-semibold bg-white text-indigo-700 shadow-sm transition">
+                            📅 Today
+                        </button>
+                        <button type="button" onclick="setResponseTimePeriod('week')" id="resp-period-week"
+                            class="px-3 py-1 rounded-md text-xs font-semibold text-gray-600 hover:text-gray-900 transition">
+                            🗓️ This Week
+                        </button>
+                        <button type="button" onclick="setResponseTimePeriod('month')" id="resp-period-month"
+                            class="px-3 py-1 rounded-md text-xs font-semibold text-gray-600 hover:text-gray-900 transition">
+                            📆 This Month
+                        </button>
+                        <button type="button" onclick="setResponseTimePeriod('all')" id="resp-period-all"
+                            class="px-3 py-1 rounded-md text-xs font-semibold text-gray-600 hover:text-gray-900 transition">
+                            ♾️ All Time
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <span id="resp-updated-at" class="text-[11px] text-gray-500 font-mono">Lazy-loaded</span>
+                        <button onclick="loadResponseTimes(true)"
+                            class="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5"
+                            title="Recalculate stats now">
+                            <i id="resp-refresh-icon" class="fas fa-rotate text-xs"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 4 KPI Summary Cards for Selected Period -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                    <div class="bg-indigo-50/70 border border-indigo-100 rounded-xl p-3 flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-bolt text-sm"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-xs text-gray-500 truncate">Average Time</p>
+                            <p id="resp-kpi-avg" class="text-lg font-bold text-gray-900 truncate">—</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-emerald-50/70 border border-emerald-100 rounded-xl p-3 flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-bullseye text-sm"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-xs text-gray-500 truncate">Median Time</p>
+                            <p id="resp-kpi-median" class="text-lg font-bold text-gray-900 truncate">—</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-sky-50/70 border border-sky-100 rounded-xl p-3 flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-arrows-left-right text-sm"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-xs text-gray-500 truncate">Fastest / Slowest</p>
+                            <p id="resp-kpi-range" class="text-xs font-bold text-gray-800 truncate">—</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-purple-50/70 border border-purple-100 rounded-xl p-3 flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-hashtag text-sm"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-xs text-gray-500 truncate">Total Queries</p>
+                            <p id="resp-kpi-count" class="text-lg font-bold text-gray-900 truncate">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Breakdown by Models Table -->
+                <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                    <div class="px-3.5 py-2 bg-slate-50 border-b border-gray-200 flex items-center justify-between">
+                        <span class="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                            <i class="fas fa-microchip text-indigo-500"></i> Model Breakdown for <span id="resp-breakdown-period-label" class="text-indigo-600 font-semibold">Today</span>
+                        </span>
+                        <span class="text-[11px] text-gray-400" id="resp-models-count-label">0 models</span>
+                    </div>
+
+                    <div class="overflow-x-auto max-h-56 overflow-y-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-100/70 border-b border-gray-200 text-gray-600 font-semibold uppercase text-[10px] tracking-wider">
+                                    <th class="py-2 px-3">Model</th>
+                                    <th class="py-2 px-3 text-center">Requests</th>
+                                    <th class="py-2 px-3 text-right">Average</th>
+                                    <th class="py-2 px-3 text-right">Median</th>
+                                    <th class="py-2 px-3 text-right">Min / Max</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resp-models-tbody" class="divide-y divide-gray-100">
+                                <tr>
+                                    <td colspan="5" class="py-6 text-center text-gray-400 text-xs">No query response data available for this period.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- All Periods Comparative Overview Table -->
+                <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                    <div class="px-3.5 py-2 bg-slate-50 border-b border-gray-200">
+                        <span class="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                            <i class="fas fa-chart-simple text-emerald-500"></i> All Periods Comparison (Overall)
+                        </span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-100/70 border-b border-gray-200 text-gray-600 font-semibold uppercase text-[10px] tracking-wider">
+                                    <th class="py-2 px-3">Period</th>
+                                    <th class="py-2 px-3 text-center">Requests</th>
+                                    <th class="py-2 px-3 text-right">Average</th>
+                                    <th class="py-2 px-3 text-right">Median</th>
+                                    <th class="py-2 px-3 text-right">Min / Max</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resp-comparison-tbody" class="divide-y divide-gray-100">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

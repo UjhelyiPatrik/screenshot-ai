@@ -506,28 +506,206 @@ function switchTab(tab) {
     const logsBtn = document.getElementById('tab-btn-logs');
     const histBtn = document.getElementById('tab-btn-history');
     const keysBtn = document.getElementById('tab-btn-keys');
+    const respBtn = document.getElementById('tab-btn-response-times');
     const logsContent = document.getElementById('tab-content-logs');
     const histContent = document.getElementById('tab-content-history');
     const keysContent = document.getElementById('tab-content-keys');
+    const respContent = document.getElementById('tab-content-response-times');
 
     // Reset all tabs
-    [logsBtn, histBtn, keysBtn].forEach(btn => {
-        btn.className = 'px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex items-center gap-2 transition';
+    [logsBtn, histBtn, keysBtn, respBtn].forEach(btn => {
+        if (btn) btn.className = 'px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex items-center gap-2 transition';
     });
-    logsContent.classList.add('hidden');
-    histContent.classList.add('hidden');
-    keysContent.classList.add('hidden');
+    if (logsContent) logsContent.classList.add('hidden');
+    if (histContent) histContent.classList.add('hidden');
+    if (keysContent) keysContent.classList.add('hidden');
+    if (respContent) respContent.classList.add('hidden');
 
     if (tab === 'logs') {
-        logsBtn.className = 'px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 transition';
-        logsContent.classList.remove('hidden');
+        if (logsBtn) logsBtn.className = 'px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 transition';
+        if (logsContent) logsContent.classList.remove('hidden');
     } else if (tab === 'history') {
-        histBtn.className = 'px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 transition';
-        histContent.classList.remove('hidden');
+        if (histBtn) histBtn.className = 'px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 transition';
+        if (histContent) histContent.classList.remove('hidden');
     } else if (tab === 'keys') {
-        keysBtn.className = 'px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 transition';
-        keysContent.classList.remove('hidden');
+        if (keysBtn) keysBtn.className = 'px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 transition';
+        if (keysContent) keysContent.classList.remove('hidden');
         refreshApiKeys();
+    } else if (tab === 'response-times') {
+        if (respBtn) respBtn.className = 'px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 transition';
+        if (respContent) respContent.classList.remove('hidden');
+        if (responseTimesDirty || !responseTimesData) {
+            loadResponseTimes();
+        } else {
+            renderResponseTimes();
+        }
+    }
+}
+
+// --- Response Times & Performance Analytics (Lazy-loaded) ---
+let responseTimesData = null;
+let responseTimesDirty = true;
+let currentResponseTimePeriod = 'today'; // 'today', 'week', 'month', 'all'
+let isResponseTimesLoading = false;
+
+function setResponseTimePeriod(period) {
+    currentResponseTimePeriod = period;
+
+    const periods = ['today', 'week', 'month', 'all'];
+    periods.forEach(p => {
+        const btn = document.getElementById(`resp-period-${p}`);
+        if (!btn) return;
+        if (p === period) {
+            btn.className = 'px-3 py-1 rounded-md text-xs font-semibold bg-white text-indigo-700 shadow-sm transition';
+        } else {
+            btn.className = 'px-3 py-1 rounded-md text-xs font-semibold text-gray-600 hover:text-gray-900 transition';
+        }
+    });
+
+    renderResponseTimes();
+}
+
+async function loadResponseTimes(force = false) {
+    if (isResponseTimesLoading) return;
+    isResponseTimesLoading = true;
+
+    const refreshIcon = document.getElementById('resp-refresh-icon');
+    if (refreshIcon) refreshIcon.classList.add('fa-spin');
+
+    try {
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.get_response_time_stats) {
+            const data = await window.pywebview.api.get_response_time_stats();
+            responseTimesData = data;
+            responseTimesDirty = false;
+            renderResponseTimes();
+        }
+    } catch (err) {
+        console.error('Failed to load response time stats:', err);
+    } finally {
+        isResponseTimesLoading = false;
+        if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+    }
+}
+
+function renderResponseTimes() {
+    if (!responseTimesData) return;
+
+    const periodData = responseTimesData[currentResponseTimePeriod] || {
+        summary: { count: 0, avg_formatted: '—', median_formatted: '—', min_formatted: '—', max_formatted: '—' },
+        by_model: {}
+    };
+
+    const summary = periodData.summary || { count: 0, avg_formatted: '—', median_formatted: '—', min_formatted: '—', max_formatted: '—' };
+    const byModel = periodData.by_model || {};
+
+    // 1. Update KPI cards
+    const kpiAvg = document.getElementById('resp-kpi-avg');
+    const kpiMedian = document.getElementById('resp-kpi-median');
+    const kpiRange = document.getElementById('resp-kpi-range');
+    const kpiCount = document.getElementById('resp-kpi-count');
+    const updatedAtSpan = document.getElementById('resp-updated-at');
+
+    if (kpiAvg) kpiAvg.textContent = summary.avg_formatted || '—';
+    if (kpiMedian) kpiMedian.textContent = summary.median_formatted || '—';
+    if (kpiRange) {
+        if (summary.count > 0) {
+            kpiRange.textContent = `${summary.min_formatted} / ${summary.max_formatted}`;
+        } else {
+            kpiRange.textContent = '—';
+        }
+    }
+    if (kpiCount) kpiCount.textContent = (summary.count || 0).toLocaleString();
+    if (updatedAtSpan) {
+        updatedAtSpan.textContent = `Generated: ${responseTimesData.generated_at || 'just now'}`;
+    }
+
+    // 2. Update Breakdown period label
+    const periodNames = {
+        'today': 'Today',
+        'week': 'This Week (7 days)',
+        'month': 'This Month (30 days)',
+        'all': 'All Time'
+    };
+    const periodLabel = document.getElementById('resp-breakdown-period-label');
+    if (periodLabel) periodLabel.textContent = periodNames[currentResponseTimePeriod] || currentResponseTimePeriod;
+
+    // 3. Render Models Breakdown Table
+    const tbody = document.getElementById('resp-models-tbody');
+    const modelKeys = Object.keys(byModel);
+    const countLabel = document.getElementById('resp-models-count-label');
+    if (countLabel) countLabel.textContent = `${modelKeys.length} model${modelKeys.length === 1 ? '' : 's'}`;
+
+    if (tbody) {
+        tbody.innerHTML = '';
+        if (modelKeys.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-gray-400 text-xs">No queries recorded for this period yet.</td></tr>`;
+        } else {
+            modelKeys.forEach(modelName => {
+                const mStats = byModel[modelName];
+                const cleanModel = modelName.replace(/^models\//, '');
+                const pct = summary.count > 0 ? Math.round((mStats.count / summary.count) * 100) : 0;
+
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50/80 transition';
+                tr.innerHTML = `
+                    <td class="py-2.5 px-3 font-medium text-gray-900">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                            <span class="font-mono text-xs font-semibold">${escapeHtml(cleanModel)}</span>
+                        </div>
+                    </td>
+                    <td class="py-2.5 px-3 text-center">
+                        <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700">
+                            ${mStats.count} <span class="text-gray-400 font-normal">(${pct}%)</span>
+                        </span>
+                    </td>
+                    <td class="py-2.5 px-3 text-right font-mono font-bold text-indigo-600">${mStats.avg_formatted}</td>
+                    <td class="py-2.5 px-3 text-right font-mono font-bold text-emerald-600">${mStats.median_formatted}</td>
+                    <td class="py-2.5 px-3 text-right font-mono text-gray-500">${mStats.min_formatted} / ${mStats.max_formatted}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    }
+
+    // 4. Render All Periods Comparison Table
+    const compTbody = document.getElementById('resp-comparison-tbody');
+    if (compTbody) {
+        compTbody.innerHTML = '';
+        const order = [
+            { key: 'today', label: 'Today (Napi)', icon: 'fa-calendar-day', color: 'text-indigo-600' },
+            { key: 'week', label: 'This Week (Heti)', icon: 'fa-calendar-week', color: 'text-sky-600' },
+            { key: 'month', label: 'This Month (Havi)', icon: 'fa-calendar', color: 'text-purple-600' },
+            { key: 'all', label: 'All Time (Összesített)', icon: 'fa-infinity', color: 'text-emerald-600' },
+        ];
+
+        order.forEach(row => {
+            const rowData = responseTimesData[row.key] ? responseTimesData[row.key].summary : null;
+            const rCount = rowData ? rowData.count : 0;
+            const rAvg = rowData && rCount > 0 ? rowData.avg_formatted : '—';
+            const rMedian = rowData && rCount > 0 ? rowData.median_formatted : '—';
+            const rMinMax = rowData && rCount > 0 ? `${rowData.min_formatted} / ${rowData.max_formatted}` : '—';
+
+            const tr = document.createElement('tr');
+            const isSelected = row.key === currentResponseTimePeriod;
+            tr.className = isSelected ? 'bg-indigo-50/50 font-semibold' : 'hover:bg-slate-50/80 transition';
+            tr.innerHTML = `
+                <td class="py-2 px-3">
+                    <span class="flex items-center gap-1.5 ${row.color}">
+                        <i class="fas ${row.icon} text-xs"></i>
+                        <span>${row.label}</span>
+                        ${isSelected ? '<span class="text-[10px] text-indigo-500 font-normal ml-1">(active)</span>' : ''}
+                    </span>
+                </td>
+                <td class="py-2 px-3 text-center">
+                    <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700">${rCount}</span>
+                </td>
+                <td class="py-2 px-3 text-right font-mono ${rCount > 0 ? 'text-indigo-600 font-bold' : 'text-gray-400'}">${rAvg}</td>
+                <td class="py-2 px-3 text-right font-mono ${rCount > 0 ? 'text-emerald-600 font-bold' : 'text-gray-400'}">${rMedian}</td>
+                <td class="py-2 px-3 text-right font-mono text-gray-500">${rMinMax}</td>
+            `;
+            compTbody.appendChild(tr);
+        });
     }
 }
 
@@ -846,6 +1024,11 @@ function deleteHistoryItem(id) {
     if (targetIdx !== -1) {
         queryHistory.splice(targetIdx, 1);
         renderHistory();
+        responseTimesDirty = true;
+        const respContent = document.getElementById('tab-content-response-times');
+        if (respContent && !respContent.classList.contains('hidden')) {
+            loadResponseTimes();
+        }
     }
     if (window.pywebview && window.pywebview.api && window.pywebview.api.delete_history_item) {
         window.pywebview.api.delete_history_item(id).then(success => {
@@ -872,15 +1055,25 @@ function openHistoryImage(path) {
 
 function addHistoryItem(item) {
     queryHistory.unshift(item);
-    if (queryHistory.length > 100) {
+    if (queryHistory.length > 500) {
         queryHistory.pop();
     }
     renderHistory();
+    responseTimesDirty = true;
+    const respContent = document.getElementById('tab-content-response-times');
+    if (respContent && !respContent.classList.contains('hidden')) {
+        loadResponseTimes();
+    }
 }
 
 function clearHistory() {
     queryHistory = [];
     renderHistory();
+    responseTimesDirty = true;
+    const respContent = document.getElementById('tab-content-response-times');
+    if (respContent && !respContent.classList.contains('hidden')) {
+        loadResponseTimes();
+    }
     if (window.pywebview && window.pywebview.api && window.pywebview.api.clear_history) {
         window.pywebview.api.clear_history();
     }

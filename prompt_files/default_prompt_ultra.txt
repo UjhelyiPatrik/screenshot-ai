@@ -23,4 +23,4 @@ OUTPUT FORMAT RULES (STRICT):
 CONSTRAINTS:
 - NEVER write conversational filler ("The answer is", "Based on the image", "According to").
 - Match the exact language of the question (Hungarian, English, etc.).
-- Total output MUST be under 100 characters for immediate glance in tray icon and UI.
+- Total output MUST be under 256 characters for immediate glance in tray icon and UI.

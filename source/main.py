@@ -13,6 +13,7 @@ import queue
 import sys
 import threading
 import time
+from datetime import date
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -450,8 +451,11 @@ class Application:
         # Add to history repository
         history_entry = {
             "id": request_id,
+            "timestamp": time.time(),
+            "date": str(date.today()),
             "time": time.strftime("%H:%M:%S"),
             "duration": duration_formatted,
+            "duration_ms": round(elapsed_sec * 1000.0, 1),
             "model": result.model_used or model,
             "capture_mode": capture_mode,
             "tokens": result.tokens_used,
@@ -639,6 +643,10 @@ class Application:
 
     def get_history(self) -> list[dict]:
         return self._history_repo.get_all()
+
+    def get_response_time_stats(self) -> dict[str, Any]:
+        """Return lazy-calculated average and median response times broken down by model."""
+        return self._history_repo.get_response_time_stats()
 
     def clear_history(self) -> None:
         self._history_repo.clear()

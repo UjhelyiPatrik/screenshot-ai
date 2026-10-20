@@ -507,6 +507,118 @@ class TestHistoryRepository(unittest.TestCase):
         self.assertIsNotNone(entries[0]["thumbnail"])
         self.assertTrue(entries[0]["thumbnail"].startswith("data:image/jpeg;base64,"))
 
+    def test_get_response_time_stats_lazy_memoization(self):
+        # Empty repo stats
+        empty_stats = self.repo.get_response_time_stats()
+        self.assertIn("today", empty_stats)
+        self.assertIn("week", empty_stats)
+        self.assertIn("month", empty_stats)
+        self.assertIn("all", empty_stats)
+        self.assertEqual(empty_stats["today"]["summary"]["count"], 0)
+        self.assertEqual(empty_stats["today"]["summary"]["avg_formatted"], "—")
+
+        # Add sample entries across different time windows and models
+        now = time.time()
+        today_date = str(date.today())
+
+        # Today: 2 queries for gemini-3.8-flash (1000ms, 3000ms -> avg=2000ms, med=2000ms)
+        self.repo.add({
+            "id": 1,
+            "timestamp": now - 100,
+            "date": today_date,
+            "duration_ms": 1000.0,
+            "model": "gemini-3.8-flash",
+            "status": "success",
+        })
+        self.repo.add({
+            "id": 2,
+            "timestamp": now - 50,
+            "date": today_date,
+            "duration_ms": 3000.0,
+            "model": "gemini-3.8-flash",
+            "status": "success",
+        })
+
+        # Earlier this week (3 days ago): 1 query for gemini-2.5-flash (4000ms)
+        self.repo.add({
+            "id": 3,
+            "timestamp": now - (3 * 86400),
+            "date": "2026-10-17",
+            "duration_ms": 4000.0,
+            "model": "gemini-2.5-flash",
+            "status": "success",
+        })
+
+        # Earlier this month (20 days ago): 1 query for gemini-2.5-flash (2000ms)
+        self.repo.add({
+            "id": 4,
+            "timestamp": now - (20 * 86400),
+            "date": "2026-09-30",
+            "duration_ms": 2000.0,
+            "model": "gemini-2.5-flash",
+            "status": "success",
+        })
+
+        stats = self.repo.get_response_time_stats()
+
+        # Check Today: 2 queries, avg=2000ms, median=2000ms
+        self.assertEqual(stats["today"]["summary"]["count"], 2)
+        self.assertEqual(stats["today"]["summary"]["avg_ms"], 2000.0)
+        self.assertEqual(stats["today"]["summary"]["median_ms"], 2000.0)
+        self.assertEqual(stats["today"]["summary"]["avg_formatted"], "2.00s")
+        self.assertIn("gemini-3.8-flash", stats["today"]["by_model"])
+
+        # Check Week: 3 queries (id 1, 2, 3), total ms = 1000 + 3000 + 4000 = 8000 -> avg = 2666.7, med = 3000
+        self.assertEqual(stats["week"]["summary"]["count"], 3)
+        self.assertAlmostEqual(stats["week"]["summary"]["avg_ms"], 2666.7, places=1)
+        self.assertEqual(stats["week"]["summary"]["median_ms"], 3000.0)
+
+        # Check All Time: 4 queries
+        self.assertEqual(stats["all"]["summary"]["count"], 4)
+        self.assertIn("gemini-3.8-flash", stats["all"]["by_model"])
+        self.assertIn("gemini-2.5-flash", stats["all"]["by_model"])
+
+        # Verify Lazy Memoization: subsequent call returns cached dict without recomputing
+        stats_cached = self.repo.get_response_time_stats()
+        self.assertIs(stats["today"], stats_cached["today"])
+
+        # Invalidation: adding new entry clears cache
+        self.repo.add({
+            "id": 5,
+            "timestamp": now,
+            "date": today_date,
+            "duration_ms": 500.0,
+            "model": "gemini-3.8-flash",
+            "status": "success",
+        })
+        self.assertIsNone(self.repo._cached_stats)
+        recalculated = self.repo.get_response_time_stats()
+        self.assertEqual(recalculated["today"]["summary"]["count"], 3)
+
+    def test_response_times_string_duration_parsing(self):
+        # Legacy entry with duration string like "1.25s" or "450ms"
+        now = time.time()
+        self.repo.add({
+            "id": 10,
+            "timestamp": now,
+            "date": str(date.today()),
+            "duration": "1.50s",
+            "model": "legacy-model",
+        })
+        self.repo.add({
+            "id": 11,
+            "timestamp": now,
+            "date": str(date.today()),
+            "duration": "500ms",
+            "model": "legacy-model",
+        })
+
+        stats = self.repo.get_response_time_stats()
+        self.assertEqual(stats["today"]["summary"]["count"], 2)
+        # 1500ms + 500ms = 2000ms / 2 = 1000ms
+        self.assertEqual(stats["today"]["summary"]["avg_ms"], 1000.0)
+        self.assertEqual(stats["today"]["summary"]["median_ms"], 1000.0)
+
 
 # =====================================================================
 # 7. Screen Capture Subsystem Tests (Strategy Pattern)
@@ -973,10 +1085,12 @@ class TestUIBridge(unittest.TestCase):
             remove_api_key=lambda k: True,
             get_log_level=lambda: "INFO",
             set_log_level=lambda l: True,
+            get_response_time_stats=lambda: {"today": {}},
             get_initial_state=lambda: {"test": 1},
         )
         self.assertEqual(cb.get_pdf_sources(), ["a.pdf"])
         self.assertEqual(cb.get_token_usage(), {"total": 50})
+        self.assertEqual(cb.get_response_time_stats(), {"today": {}})
         self.assertEqual(cb.get_initial_state(), {"test": 1})
 
     @patch("ui.webview.create_window")
@@ -1002,6 +1116,7 @@ class TestUIBridge(unittest.TestCase):
         self.assertIn("save_prompt", exposed_names)
         self.assertIn("set_hotkey", exposed_names)
         self.assertIn("delete_history_item", exposed_names)
+        self.assertIn("get_response_time_stats", exposed_names)
 
 
 # =====================================================================
@@ -1237,6 +1352,17 @@ class TestApplicationComplete(unittest.TestCase):
         self.assertTrue(app.set_log_level("DEBUG"))
         self.assertEqual(app.get_log_level(), "DEBUG")
         self.assertFalse(app.set_log_level("INVALID_LEVEL"))
+
+    @patch("client_pool.genai.Client")
+    def test_application_get_response_time_stats(self, mock_client_cls):
+        from main import Application
+        app = Application(config=self.cfg, prompt_file="default_prompt.txt", invisible=True)
+        stats = app.get_response_time_stats()
+        self.assertIn("today", stats)
+        self.assertIn("week", stats)
+        self.assertIn("month", stats)
+        self.assertIn("all", stats)
+        self.assertIn("generated_at", stats)
 
 
 # =====================================================================
