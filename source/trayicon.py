@@ -1,95 +1,141 @@
-from PIL import Image, ImageDraw, ImageFont
-import pystray
+"""System-tray icon for displaying short answers and status."""
+
+from __future__ import annotations
+
+import logging
 import threading
-from pystray import MenuItem as item
+from typing import Callable
 
-from ansi import ansi
+import pystray
+from PIL import Image, ImageDraw, ImageFont
+from pystray import MenuItem
 
-TRAYICON_MSG = ansi.OKCYAN + "TRAYICON: " + ansi.ENDC
+logger = logging.getLogger(__name__)
+
 
 class TrayIcon:
-    def __init__(self, quit_callback, show_gui_callback):
-        self.icon = None
-        self.quit_callback = quit_callback
-        self.show_gui_callback = show_gui_callback
-        print(TRAYICON_MSG + "Initialized.")
+    """Persistent system-tray icon that is created once and updated in-place."""
 
-    def create_image(self, answer="", color="black"):
-        # Create an image for the icon
-        print(TRAYICON_MSG + "Creating icon image...")
+    _ICON_SIZE = 64
 
-        width, height = 64, 64
-        image = Image.new('RGBA', (width, height), (255, 255, 255, 0))
-        draw = ImageDraw.Draw(image)
+    def __init__(
+        self,
+        quit_callback: Callable[[], None],
+        show_gui_callback: Callable[[], None],
+    ) -> None:
+        self._quit_callback = quit_callback
+        self._show_gui_callback = show_gui_callback
 
-        # Set background color
-        draw.rectangle((0, 0, width, height), fill=color)
+        self._icon = pystray.Icon(
+            "Screenshot AI",
+            icon=self._create_image("RDY", color="green"),
+            title="Ready",
+            menu=pystray.Menu(
+                MenuItem("Toggle GUI", lambda _icon, _item: self._show_gui_callback()),
+                MenuItem("Quit", lambda _icon, _item: self._quit_callback()),
+            ),
+        )
 
-        # Load a custom font with a larger size
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(target=self._icon.run, daemon=True)
+        self._thread.start()
+        logger.info("Tray icon started.")
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+
+    def display_answer(
+        self,
+        answer: str,
+        color: str = "black",
+        title: str | None = None,
+    ) -> None:
+        """Update the tray icon with *answer* badge and optional hover tooltip *title*."""
+        with self._lock:
+            display_title = title or answer
+            if len(display_title) > 120:
+                display_title = display_title[:120] + "..."
+
+            # For badge text: ensure it fits cleanly inside the 64x64 icon
+            badge = answer.strip()
+            if len(badge) > 6:
+                words = badge.split()
+                if words and len(words[0]) <= 6:
+                    badge = words[0]
+                else:
+                    badge = badge[:5] + "…"
+
+            try:
+                self._icon.icon = self._create_image(badge, color=color)
+                self._icon.title = display_title
+            except Exception as exc:
+                logger.warning("Error updating tray icon: %s", exc)
+
+    def set_loading(self) -> None:
+        """Show a "loading" indicator in the tray."""
+        with self._lock:
+            try:
+                self._icon.icon = self._create_image("...", color="navy")
+                self._icon.title = "Processing question …"
+            except Exception as exc:
+                logger.warning("Error setting tray loading: %s", exc)
+
+    def stop(self) -> None:
+        """Stop the tray icon and its thread."""
         try:
-            font = ImageFont.truetype("arial.ttf", 32)  # You can change the font and size here
-        except IOError:
-            font = ImageFont.load_default()  # Fallback to default font if custom font isn't found
+            self._icon.stop()
+            logger.info("Tray icon stopped.")
+        except Exception:
+            pass
 
-        text = answer
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
 
-        # Calculate the bounding box of the text
-        text_bbox = draw.textbbox((0, 0), text, font=font)
-        text_width, text_height = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+    def _create_image(self, text: str, color: str = "black") -> Image.Image:
+        """Render a small square icon with centered *text* on a *color* background.
 
-        # Position text at the center
-        text_x = (width - text_width) / 2
-        text_y = (height - text_height) / 2
+        Dynamically adjusts font size so short answers and 3-4 character error
+        badges (e.g. 503, 429, NET, ERR) fit neatly inside the icon.
+        """
+        size = self._ICON_SIZE
+        image = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((0, 0, size, size), fill=color)
 
-        # Draw the text on the icon
-        draw.text((text_x, text_y), text, fill="white", font=font)
+        # Scale font down from 32 until text fits with padding
+        font_size = 32
+        font = None
+        text_w, text_h = 0, 0
 
-        print(TRAYICON_MSG + "Icon image created.")
+        while font_size >= 12:
+            try:
+                candidate_font = ImageFont.truetype("arial.ttf", font_size)
+            except IOError:
+                candidate_font = ImageFont.load_default()
+                font = candidate_font
+                bbox = draw.textbbox((0, 0), text, font=font)
+                text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                break
 
+            bbox = draw.textbbox((0, 0), text, font=candidate_font)
+            w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            if w <= size - 6 and h <= size - 6:
+                font = candidate_font
+                text_w, text_h = w, h
+                break
+            font_size -= 2
+
+        if font is None:
+            font = ImageFont.load_default()
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+        draw.text(
+            ((size - text_w) / 2, (size - text_h) / 2),
+            text,
+            fill="white",
+            font=font,
+        )
         return image
-
-    def display_answer(self, answer, color="black"):
-        """Displays the answer in the taskbar using a system tray icon."""
-
-        if self.icon is not None:
-            self.icon.stop()  # Stop the previous icon if it exists
-
-        max_length = 120
-        if len(answer) > max_length:
-            answer = answer[:max_length] + "..."  # Truncate and add "..."
-
-        # Create a new icon
-        self.icon = pystray.Icon("Gemini Answer")
-        self.icon.icon = self.create_image(answer, color=color)
-        self.icon.title = answer
-
-        # Create a right-click menu
-        self.icon.menu = pystray.Menu(
-            item('Toggle GUI visibility', lambda icon, item: self.show_gui_callback()),
-            item('Quit', lambda icon, item: self.quit_callback()),
-        )
-
-        # Run the icon in the system tray
-        threading.Thread(target=self.icon.run, daemon=True).start()
-
-    def set_loading(self):
-        """Displays a loading icon in the taskbar using a system tray icon."""
-
-        if self.icon is not None:
-            self.icon.stop()  # Stop the previous icon if it exists
-
-        print(TRAYICON_MSG + "Displaying loading icon...")
-
-        # Create a new icon
-        self.icon = pystray.Icon("Gemini Answer")
-        self.icon.icon = self.create_image("...", color="navy")
-        self.icon.title = "Loading..."
-
-        # Create a right-click menu
-        self.icon.menu = pystray.Menu(
-            item('Toggle GUI visibility', lambda icon, item: self.show_gui_callback()),
-            item('Quit', lambda icon, item: self.quit_callback()),
-        )
-
-        # Run the icon in the system tray
-        threading.Thread(target=self.icon.run, daemon=True).start()

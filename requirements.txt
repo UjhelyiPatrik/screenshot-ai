@@ -4,5 +4,6 @@ google-genai
 pystray
 Pillow
 keyboard
-flask
+pywebview
 pywin32
+mss

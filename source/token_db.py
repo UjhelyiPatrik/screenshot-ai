@@ -1,60 +1,70 @@
+"""Token usage tracking and persistence."""
+
+from __future__ import annotations
+
 import json
-import os
+import logging
 from datetime import date, timedelta
+from pathlib import Path
 
-from ansi import ansi
+logger = logging.getLogger(__name__)
 
-TOKEN_DB_FILE = "../token_usage.json"
 
-def load_token_data():
-    """Loads token usage data from a JSON file."""
-    if not os.path.exists(TOKEN_DB_FILE):
-        return {"total": 0, "daily": {}}
+def _empty_data() -> dict:
+    return {"total": 0, "daily": {}, "keys": {}}
+
+
+def load_token_data(db_file: Path) -> dict:
+    """Load token usage data from *db_file*, returning a safe default on any error."""
+    if not db_file.exists():
+        return _empty_data()
+
     try:
-        with open(TOKEN_DB_FILE, 'r') as f:
-            data = json.load(f)
-            # Ensure structure is correct
-            if "total" not in data or "daily" not in data:
-                print(ansi.WARNING_MSG + f"{TOKEN_DB_FILE} structure incorrect. Resetting.")
-                return {"total": 0, "daily": {}}
-            return data
-    except json.JSONDecodeError:
-        print(ansi.ERROR_MSG + f"Error decoding JSON from {TOKEN_DB_FILE}. Resetting.")
-        return {"total": 0, "daily": {}}
-    except Exception as e:
-        print(ansi.ERROR_MSG + f"Error loading token data from {TOKEN_DB_FILE}: {e}. Resetting.")
-        return {"total": 0, "daily": {}}
+        data = json.loads(db_file.read_text(encoding="utf-8"))
+        if "total" not in data or "daily" not in data:
+            logger.warning("Token DB structure invalid in %s — resetting.", db_file)
+            return _empty_data()
+        if "keys" not in data or not isinstance(data["keys"], dict):
+            data["keys"] = {}
+        return data
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Failed to load token data from %s: %s", db_file, exc)
+        return _empty_data()
 
-def save_token_data(data):
-    """Saves token usage data to a JSON file."""
+
+def save_token_data(db_file: Path, data: dict) -> None:
+    """Persist *data* as JSON to *db_file*."""
     try:
-        with open(TOKEN_DB_FILE, 'w') as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        print(ansi.ERROR_MSG + f"Error saving token data to {TOKEN_DB_FILE}: {e}")
+        db_file.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    except OSError as exc:
+        logger.error("Failed to save token data to %s: %s", db_file, exc)
 
-def update_token_data(data, tokens_used):
-    """Updates token usage data with new tokens used."""
-    if tokens_used is None or not isinstance(tokens_used, int) or tokens_used < 0:
-        print(ansi.WARNING_MSG + f"Invalid token usage value received: {tokens_used}. Not updating.")
-        return data # Return data unchanged
+
+def update_token_data(data: dict, tokens_used: int, key: str | None = None) -> dict:
+    """Add *tokens_used* to *data*, optionally track per-key usage, and prune daily entries older than 30 days."""
+    if not isinstance(tokens_used, int) or tokens_used < 0:
+        logger.warning("Invalid token count (%s) — skipping update.", tokens_used)
+        return data
 
     today_str = str(date.today())
-
-    data["total"] += tokens_used
+    data["total"] = data.get("total", 0) + tokens_used
+    if "daily" not in data or not isinstance(data["daily"], dict):
+        data["daily"] = {}
     data["daily"][today_str] = data["daily"].get(today_str, 0) + tokens_used
 
-    # Prune old daily data (older than 30 days)
-    prune_date = date.today() - timedelta(days=30)
-    keys_to_prune = [d for d in data["daily"] if date.fromisoformat(d) < prune_date]
-    for k in keys_to_prune:
-       del data["daily"][k]
+    if key:
+        if "keys" not in data or not isinstance(data["keys"], dict):
+            data["keys"] = {}
+        entry = data["keys"].setdefault(key, {"tokens": 0, "requests": 0, "last_used": ""})
+        entry["tokens"] = entry.get("tokens", 0) + tokens_used
+        entry["requests"] = entry.get("requests", 0) + 1
+        import time
+        entry["last_used"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
+    cutoff = date.today() - timedelta(days=30)
+    data["daily"] = {
+        day: count
+        for day, count in data["daily"].items()
+        if date.fromisoformat(day) >= cutoff
+    }
     return data
-
-# Example Usage:
-# token_data = load_token_data()
-# print(f"Loaded initial data: {token_data}")
-# token_data = update_token_data(token_data, 150) # Example tokens used
-# print(f"Updated data: {token_data}")
-# save_token_data(token_data)

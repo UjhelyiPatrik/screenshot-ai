@@ -1,292 +1,307 @@
-import os
-import webview
-import threading
-import queue
-import sys
-import time
+"""Desktop UI backed by pywebview (no Flask dependency)."""
+
+from __future__ import annotations
+
 import json
+import logging
+import os
+import queue
+import threading
+from dataclasses import dataclass
+from typing import Callable
 
-from ansi import ansi
+import webview
 
-UI_MSG = ansi.OKCYAN + "UI: " + ansi.ENDC
+logger = logging.getLogger(__name__)
 
-class LogRedirector(object):
-    """Redirects stdout to a queue for the UI."""
-    def __init__(self, queue):
-        self.queue = queue
-        self._stdout = sys.stdout # Keep original stdout
-        self._buffer = "" # Buffer for incomplete lines
 
-    def write(self, text):
-        self._stdout.write(text) # Also write to original stdout (console)
-        self._buffer += text
-        while '\n' in self._buffer:
-            line, self._buffer = self._buffer.split('\n', 1)
-            self.queue.put(line + '\n') # Add newline back for consistency
+# ------------------------------------------------------------------
+# Typed callback interface between Application and UI
+# ------------------------------------------------------------------
 
-    def flush(self):
-        self._stdout.flush() # Flush original stdout
-        # If there's anything left in the buffer without a newline, put it in the queue
-        if self._buffer:
-             self.queue.put(self._buffer)
-             self._buffer = ""
+@dataclass
+class AppCallbacks:
+    """Strongly-typed callbacks the UI uses to communicate with the application."""
 
-    # Required for Python 3
-    def isatty(self):
-        return False
+    start_listening: Callable[[], bool]
+    stop_listening: Callable[[], None]
+    get_pdf_sources: Callable[[], list[str]]
+    set_pdf_sources: Callable[[list[str]], None]
+    get_available_models: Callable[[], list[str]]
+    get_selected_model: Callable[[], str | None]
+    set_selected_model: Callable[[str], None]
+    get_token_usage: Callable[[], dict]
+    quit_app: Callable[[], None]
+    toggle_ui_visibility: Callable[[], None]
+    get_available_prompts: Callable[[], list[str]]
+    get_selected_prompt: Callable[[], str]
+    set_selected_prompt: Callable[[str], None]
+    get_prompt_content: Callable[[str], str]
+    save_prompt: Callable[[str, str], bool]
+    get_capture_mode: Callable[[], str]
+    set_capture_mode: Callable[[str], bool]
+    get_hotkey: Callable[[], str]
+    set_hotkey: Callable[[str], bool]
+    get_history: Callable[[], list[dict]]
+    clear_history: Callable[[], None]
+    delete_history_item: Callable[[Any], bool]
+    open_history_image: Callable[[str], bool]
+    get_history_image_base64: Callable[[str], str | None]
+    get_api_keys_info: Callable[[], list[dict]]
+    add_api_key: Callable[[str], bool]
+    remove_api_key: Callable[[str], bool]
+    get_log_level: Callable[[], str]
+    set_log_level: Callable[[str], bool]
+    get_initial_state: Callable[[], dict]
 
-    # Required for Python 3
-    def fileno(self):
-        return self._stdout.fileno()
-    
-    # Required for Python 3's print() function to work correctly with redirected stdout
-    @property
-    def encoding(self):
-        try:
-            return self._original_stream.encoding
-        except Exception:
-            return 'utf-8' # Default encoding
 
+# ------------------------------------------------------------------
+# UI class
+# ------------------------------------------------------------------
 
 class UI:
-    def __init__(self, main_app_callbacks, hidden=False, listening=False):
-        """
-        Initializes the UI window and communication bridge.
-        Args:
-            main_app_callbacks: A dictionary of functions from main.py to be called by the UI/JS.
-        """
-        self.window = None
-        self.log_queue = queue.Queue()
-        self.log_redirector = LogRedirector(self.log_queue)
-        self._log_thread = None
+    """Pywebview-based desktop window that serves ``ui.html`` directly from disk.
+
+    Receives log messages via *log_queue* and forwards them to the JS
+    ``appendLog()`` function, preserving ANSI colour codes for rendering.
+    """
+
+    def __init__(
+        self,
+        callbacks: AppCallbacks,
+        log_queue: queue.Queue[str | None],
+        hidden: bool = False,
+        listening: bool = False,
+    ) -> None:
+        self.window: webview.Window | None = None
+        self._callbacks = callbacks
+        self._log_queue = log_queue
+        self._log_thread: threading.Thread | None = None
         self._log_thread_running = False
-        self.initial_listening_state = listening # Store initial state
+        self._initial_listening = listening
 
-        # Store callbacks from the main application
-        self.main_app_callbacks = main_app_callbacks
+        html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui.html")
 
-        # We serve the HTML file using Flask
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        self.app = Flask(__name__, 
-                         static_url_path='', # Serve static files from the root URL path
-                         static_folder=current_dir, # Serve static files from the current directory
-                         template_folder=current_dir) # Serve templates from the current directory
-
-        @self.app.route('/')
-        def index():
-            # Render ui.html from the same directory
-            return render_template('ui.html')
-
-        # Create the webview window, serving the Flask app
-        # headless=True might be useful if you want to start without the GUI visible
         self.window = webview.create_window(
-            'Gemini QA Config',
-            url='http://127.0.0.1:5000/',
-            width=800,
-            height=600,
+            "Screenshot AI",
+            url=html_path,
+            width=940,
+            height=740,
             resizable=True,
             hidden=hidden,
         )
 
-        self.window.expose(self.browse_pdf)
-        for callback in self.main_app_callbacks:
-            self.window.expose(self.main_app_callbacks[callback]) # Expose each callback to the JS context
+        # ----- Expose to JS --------------------------------------------------
+        # Named wrappers guarantee that func.__name__ matches what JS expects.
 
-    def browse_pdf(self):
-        """Opens a file dialog to select a PDF file."""
-        # This method is called from the JS side
-        # Use the webview API to open a file dialog and return the selected file path
+        def start_listening() -> bool:
+            return callbacks.start_listening()
+
+        def stop_listening() -> None:
+            callbacks.stop_listening()
+
+        def set_pdf_sources(sources: list[str]) -> None:
+            callbacks.set_pdf_sources(sources)
+
+        def set_selected_model(model: str) -> None:
+            callbacks.set_selected_model(model)
+
+        def set_selected_prompt(prompt_name: str) -> None:
+            callbacks.set_selected_prompt(prompt_name)
+
+        def get_prompt_content(prompt_name: str) -> str:
+            return callbacks.get_prompt_content(prompt_name)
+
+        def save_prompt(prompt_name: str, content: str) -> bool:
+            return callbacks.save_prompt(prompt_name, content)
+
+        def set_capture_mode(mode: str) -> bool:
+            return callbacks.set_capture_mode(mode)
+
+        def set_hotkey(hotkey_str: str) -> bool:
+            return callbacks.set_hotkey(hotkey_str)
+
+        def clear_history() -> None:
+            callbacks.clear_history()
+
+        def delete_history_item(item_id: Any) -> bool:
+            return callbacks.delete_history_item(item_id)
+
+        def open_history_image(image_path: str) -> bool:
+            return callbacks.open_history_image(image_path)
+
+        def get_history_image_base64(image_path: str) -> str | None:
+            return callbacks.get_history_image_base64(image_path)
+
+        def get_api_keys_info() -> list[dict]:
+            return callbacks.get_api_keys_info()
+
+        def add_api_key(key: str) -> bool:
+            return callbacks.add_api_key(key)
+
+        def remove_api_key(key: str) -> bool:
+            return callbacks.remove_api_key(key)
+
+        def get_log_level() -> str:
+            return callbacks.get_log_level()
+
+        def set_log_level(level: str) -> bool:
+            return callbacks.set_log_level(level)
+
+        def toggle_ui_visibility() -> None:
+            callbacks.toggle_ui_visibility()
+
+        def get_initial_state() -> dict:
+            return callbacks.get_initial_state()
+
+        self.window.expose(
+            self.browse_pdf,
+            start_listening,
+            stop_listening,
+            set_pdf_sources,
+            set_selected_model,
+            set_selected_prompt,
+            get_prompt_content,
+            save_prompt,
+            set_capture_mode,
+            set_hotkey,
+            clear_history,
+            delete_history_item,
+            open_history_image,
+            get_history_image_base64,
+            get_api_keys_info,
+            add_api_key,
+            remove_api_key,
+            get_log_level,
+            set_log_level,
+            toggle_ui_visibility,
+            get_initial_state,
+        )
+
+    # ------------------------------------------------------------------
+    # File dialog
+    # ------------------------------------------------------------------
+
+    def browse_pdf(self) -> str | None:
+        """Open a native file dialog and return the selected PDF path."""
         try:
-            pdf_path = self.window.create_file_dialog(
+            result = self.window.create_file_dialog(
                 webview.OPEN_DIALOG,
-                file_types=('PDF Files (*.pdf)',),
-                allow_multiple=False)
-            if pdf_path:
-                pdf_path = pdf_path[0]
-                return pdf_path
-            else:
-                print(UI_MSG + "No PDF file selected.")
-                return None
-        except Exception as e:
-            print(ansi.ERROR_MSG + f"Error opening file dialog: {e}")
+                file_types=("PDF Files (*.pdf)",),
+                allow_multiple=False,
+            )
+            if result:
+                return result[0]
+            logger.info("No PDF file selected.")
+            return None
+        except Exception as exc:
+            logger.error("File dialog error: %s", exc)
             return None
 
-    def start_ui(self):
-        """Starts the pywebview GUI and the log monitoring thread."""
-        print(UI_MSG + "Starting UI window...")
-        # Redirect stdout AFTER Flask app is configured but BEFORE webview.start()
-        # so logs from Flask/webview setup also go to console.
-        sys.stdout = self.log_redirector
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-        # Start the thread that monitors the log queue and sends updates to the UI
+    def start_ui(self) -> None:
+        """Start the webview event loop (blocks until the window is closed)."""
+        logger.info("Starting UI …")
+
         self._log_thread_running = True
-        self._log_thread = threading.Thread(target=self._send_logs_to_ui, daemon=True)
+        self._log_thread = threading.Thread(target=self._pump_logs, daemon=True)
         self._log_thread.start()
-        print(UI_MSG + "Log monitoring thread started.")
 
-        # We need to start the Flask server in a separate thread because webview.start() blocks the main thread.
-        def run_flask():
-            # Use a simple development server
-            self.app.run(use_reloader=False) # Important: use_reloader=False with threading
+        self.window.events.closed += self._on_closed
+        self.window.events.shown += self._on_shown
 
-        # Start Flask server in a thread
-        self._flask_thread = threading.Thread(target=run_flask, daemon=True)
-        self._flask_thread.start()
-        print(UI_MSG + "Flask development server started.")
+        logger.info("Entering webview event loop …")
+        webview.start()
 
-        # Start the webview GUI - this call blocks the main thread until the window is closed
-        # The 'on_shown' callback is fired when the window is first displayed
-        # The 'on_closed' callback is fired when the window is closed by the user
-        self.window.events.closed += self._on_window_closed # Hook closed event
-        self.window.events.shown += self._on_window_shown # Hook shown event (for initial state sync)
-
-        print(UI_MSG + "Entering webview.start() blocking call...")
-        webview.start() # This call blocks the main thread
-
-        # This code is reached AFTER webview.start() returns (i.e. window is closed)
-        print(UI_MSG + "webview.start() returned. Shutting down UI.")
-        self._log_thread_running = False # Signal log thread to stop
+        # Cleanup after the window closes
+        logger.info("Webview loop ended.")
+        self._log_thread_running = False
         if self._log_thread and self._log_thread.is_alive():
-            # Put a dummy item in queue to unblock the thread if it's waiting
-            self.log_queue.put(None)
-            self._log_thread.join(timeout=2) # Wait for log thread to finish
+            self._log_queue.put(None)
+            self._log_thread.join(timeout=2)
 
-        # Restore original stdout
-        sys.stdout = self.log_redirector._stdout
-        print(UI_MSG + "Restored original stdout.")
+    # ------------------------------------------------------------------
+    # Webview event handlers
+    # ------------------------------------------------------------------
 
-
-    def _on_window_shown(self):
-        """Callback executed when the webview window is first shown."""
-        print(UI_MSG + "Window shown. Syncing initial state.")
-        # Send initial data to the UI after it's ready
-        # Call JavaScript function to populate settings
-        # Example: window.pywebview.api.load_settings() on the JS side calls Python's load_settings
-        # Here we'll call JS functions from Python to update the UI state.
+    def _on_shown(self) -> None:
+        logger.info("Window shown — syncing initial state.")
         try:
-            # Ask main.py for initial state and send to JS
-            initial_state = {
-                'pdfSources': self.main_app_callbacks['get_pdf_sources'](),
-                'availableModels': self.main_app_callbacks['get_available_models'](),
-                'selectedModel': self.main_app_callbacks['get_selected_model'](),
-                'tokenUsage': self.main_app_callbacks['get_token_usage'](),
-                'isListening': self.initial_listening_state, # Pass the initial listening state
-                # UI state (listening/configuring) should be handled by main.py and sent via update_ui_state
-            }
-            # Call a JS function to apply this initial state
-            self.window.evaluate_js(f'setInitialState({json.dumps(initial_state)})')
-            print(UI_MSG + "Sent initial state to JS.")
+            state = self._callbacks.get_initial_state()
+            state["isListening"] = self._initial_listening
+            self.window.evaluate_js(
+                f"if (typeof setInitialState === 'function') setInitialState({json.dumps(state)});"
+            )
+            if self._initial_listening:
+                logger.info("Auto-starting listening mode.")
+                self._callbacks.start_listening()
+        except Exception as exc:
+            logger.error("Error sending initial state to JS: %s", exc)
 
-            # If the app was meant to start listening, trigger the callback now that the UI is ready
-            if self.initial_listening_state:
-                print(UI_MSG + "Initial listening state is true, calling start_listening callback.")
-                self.main_app_callbacks['start_listening']()
-                
-        except Exception as e:
-            print(ansi.ERROR_MSG + f"Error sending initial state to JS: {e}")
+    def _on_closed(self) -> None:
+        logger.info("Window closed.")
+        self._callbacks.quit_app()
 
+    # ------------------------------------------------------------------
+    # Log forwarding
+    # ------------------------------------------------------------------
 
-    def _on_window_closed(self):
-        """Callback executed when the webview window is closed by the user."""
-        print(UI_MSG + "Window closed by user.")
-        # Signal the main application to quit gracefully
-        if self.main_app_callbacks['quit_app']:
-            print(UI_MSG + "Calling quit_app callback.")
-            self.main_app_callbacks['quit_app']() # Call the callback provided by main.py
-
-
-    def _send_logs_to_ui(self):
-        """Reads logs from the queue and sends them to the UI."""
-        print(UI_MSG + "Log sending thread started.")
+    def _pump_logs(self) -> None:
+        """Read log lines from the queue and push them to the JS log pane."""
         while self._log_thread_running:
             try:
-                # Get log line from the queue (blocks until item is available or timeout)
-                log_line = self.log_queue.get(timeout=0.5) # Use timeout to check running flag
-
-                if log_line is None: # Special signal to stop
+                line = self._log_queue.get(timeout=0.5)
+                if line is None:
                     break
-
-                # Send the log line to the UI using evaluate_js
-                # Use json.dumps to properly escape the string for JavaScript
-                if self.window: # Ensure window object still exists
-                    try:
-                        self.window.evaluate_js(f'appendLog({json.dumps(log_line)})')
-                    except Exception as e:
-                         # This might happen if the window is closing while thread is running
-                         # print(f"UI: Error sending log to JS: {e}") # Avoid excessive error logs during shutdown
-                         pass
-
+                if self.window:
+                    self.window.evaluate_js(f"appendLog({json.dumps(line)})")
             except queue.Empty:
-                # No logs in the queue, continue looping and check _log_thread_running
-                pass
-            except Exception as e:
-                print(ansi.ERROR_MSG + f"Error in log sending thread: {e}")
-                # Continue trying unless flag is set or queue gets None
+                continue
+            except Exception:
+                pass  # window may be closing
 
-        print(UI_MSG + "Log sending thread finished.")
+    def _eval_js_async(self, script: str) -> None:
+        """Execute JavaScript asynchronously without blocking caller thread."""
+        if not self.window:
+            return
 
-
-    # Methods called by the main application to update the UI from Python
-    def update_logs(self, log_text):
-        """Explicitly add a log entry to the UI (less common if redirector is used)."""
-        # This method is less needed if the LogRedirector works well.
-        # Could be used for special messages not sent to stdout.
-        if self.window:
+        def _runner():
             try:
-                self.window.evaluate_js(f'appendLog({json.dumps(log_text)})')
-            except Exception as e:
-                print(ansi.ERROR_MSG + f"Error calling JS appendLog: {e}")
+                if self.window:
+                    self.window.evaluate_js(script)
+            except Exception as exc:
+                logger.debug("Async evaluate_js error: %s", exc)
 
-    def update_token_usage(self, total, today):
-        """Updates the token usage display in the UI."""
+        threading.Thread(target=_runner, daemon=True).start()
+
+    def update_token_usage(self, total: int, today: int) -> None:
+        self._eval_js_async(f"updateTokenDisplay({total}, {today})")
+
+    def update_ui_state(self, state: str) -> None:
+        self._eval_js_async(f"setUIState({json.dumps(state)})")
+
+    def add_history_entry(self, entry: dict) -> None:
+        """Push a newly finished query record into the UI history list asynchronously."""
+        self._eval_js_async(f"addHistoryItem({json.dumps(entry)})")
+
+    def show(self) -> None:
         if self.window:
-            try:
-                self.window.evaluate_js(f'updateTokenDisplay({total}, {today})')
-            except Exception as e:
-                print(ansi.ERROR_MSG + f"Error calling JS updateTokenDisplay: {e}")
+            self.window.show()
+            logger.info("Window shown.")
 
-
-    def update_ui_state(self, state):
-        """Updates the UI elements based on the application state (e.g., 'configuring', 'listening')."""
-        # This method is called by main.py when the state changes
+    def hide(self) -> None:
         if self.window:
-            try:
-                self.window.evaluate_js(f'setUIState({json.dumps(state)})')
-            except Exception as e:
-                print(ansi.ERROR_MSG + f"Error calling JS setUIState: {e}")
+            self.window.hide()
+            logger.info("Window hidden.")
 
-
-    def show(self):
-        """Shows the UI window if it's hidden."""
-        if self.window:
-            try:
-                self.window.show()
-                print(UI_MSG + "Window shown.")
-            except Exception as e:
-                print(ansi.ERROR_MSG + f"Error showing window: {e}")
-
-
-    def hide(self):
-        """Hides the UI window."""
-        if self.window:
-            try:
-                self.window.hide()
-                print(UI_MSG + "Window hidden.")
-            except Exception as e:
-                print(ansi.ERROR_MSG + f"Error hiding window: {e}")
-
-    def destroy(self):
-        """Destroys the UI window."""
+    def destroy(self) -> None:
         if self.window:
             try:
                 self.window.destroy()
-                print(UI_MSG + "Window destroyed.")
-            except Exception as e:
-                print(ansi.ERROR_MSG + f"Error destroying window: {e}")
-            self.window = None # Clear reference
-
-
-# Need Flask setup here because it's used by UI class
-from flask import Flask, render_template
-# Ensure Flask only runs its dev server when imported and used by UI.
-# Flask dev server setup happens inside the UI class __init__ and start_ui methods.
+                logger.info("Window destroyed.")
+            except Exception as exc:
+                logger.error("Error destroying window: %s", exc)
+            self.window = None

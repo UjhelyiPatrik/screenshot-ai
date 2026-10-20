@@ -4,6 +4,10 @@ source/__pycache__/*
 mouse_positions.txt
 apikeys.txt
 token_usage.json
+settings.json
+history.json
+history_images/
 prompt_files/*
 !prompt_files/default_prompt.txt
+!prompt_files/default_prompt_ultra.txt
 !prompt_files/test.txt

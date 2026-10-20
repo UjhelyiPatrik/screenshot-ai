@@ -4,203 +4,397 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gemini QA Config</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+    <title>Screenshot AI</title>
+    <script src="vendor/tailwind.js"></script>
+    <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
 
     <style type="text/tailwindcss">
     @layer components {
-        /* Small badge next to or under the heading */
         .status-badge {
-            @apply inline-block px-4 py-2 text-base font-bold rounded-full align-middle;
+            @apply inline-block px-4 py-1.5 text-sm font-bold rounded-full align-middle transition;
         }
         .status-badge.configuring {
-            @apply bg-yellow-200 text-yellow-900 border border-yellow-300;
+            @apply bg-yellow-100 text-yellow-800 border border-yellow-300;
         }
         .status-badge.listening {
-            @apply bg-green-200 text-green-900 border border-green-300;
+            @apply bg-green-100 text-green-800 border border-green-300 animate-pulse;
         }
 
-        /* Start/Stop button */
-        #start-stop-button .listening {
-            @apply bg-red-600 text-white rounded-md text-lg font-medium hover:bg-green-700 transition;
-        }
-
-
-        /* PDF list items */
         #pdf-list li {
-        @apply bg-gray-200 p-3 rounded flex justify-between items-center;
+            @apply bg-gray-100 p-2 rounded-lg flex justify-between items-center text-xs border border-gray-200;
         }
 
-        /* Remove button */
         .remove-btn {
-        @apply ml-2 px-2 py-1 bg-orange-500 text-white rounded text-xs
-                hover:bg-orange-600 transition flex-shrink-0;
+            @apply ml-2 px-2 py-0.5 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition flex-shrink-0;
         }
 
-        /* Log output PRE */
         #log-output.ansi-log {
-        @apply w-full h-64 p-4 bg-gray-900 text-gray-100 font-mono text-sm
-                rounded overflow-y-auto whitespace-pre-wrap break-words;
+            @apply w-full h-52 p-3 bg-gray-950 text-gray-100 font-mono text-xs rounded-lg overflow-y-auto whitespace-pre-wrap break-words border border-gray-800;
         }
 
         /* ANSI color classes */
         .ansi-black        { @apply text-gray-800; }
-        .ansi-red          { @apply text-red-500; }
-        .ansi-green        { @apply text-green-500; }
-        .ansi-yellow       { @apply text-yellow-400; }
-        .ansi-blue         { @apply text-blue-500; }
-        .ansi-magenta      { @apply text-purple-500; }
-        .ansi-cyan         { @apply text-teal-400; }
+        .ansi-red          { @apply text-red-400 font-semibold; }
+        .ansi-green        { @apply text-emerald-400 font-semibold; }
+        .ansi-yellow       { @apply text-amber-300; }
+        .ansi-blue         { @apply text-sky-400; }
+        .ansi-magenta      { @apply text-purple-400; }
+        .ansi-cyan         { @apply text-cyan-300; }
         .ansi-white        { @apply text-gray-100; }
 
-        .ansi-grey         { @apply text-gray-400; }
-        .ansi-bright-red   { @apply text-red-600; }
-        .ansi-bright-green { @apply text-green-600; }
-        .ansi-bright-yellow{ @apply text-yellow-500; }
-        .ansi-bright-blue  { @apply text-blue-600; }
-        .ansi-bright-magenta{@apply text-purple-600; }
-        .ansi-bright-cyan  { @apply text-teal-500; }
-        .ansi-bright-white { @apply text-white; }
+        .ansi-grey         { @apply text-gray-500; }
+        .ansi-bright-red   { @apply text-red-500 font-bold; }
+        .ansi-bright-green { @apply text-emerald-500 font-bold; }
+        .ansi-bright-yellow{ @apply text-amber-400 font-bold; }
+        .ansi-bright-blue  { @apply text-sky-500 font-bold; }
+        .ansi-bright-magenta{ @apply text-purple-500 font-bold; }
+        .ansi-bright-cyan  { @apply text-cyan-400 font-bold; }
+        .ansi-bright-white { @apply text-white font-bold; }
 
-        /* Attributes */
         .ansi-bold         { @apply font-bold; }
         .ansi-underline    { @apply underline; }
 
-        /* Disabled form controls (inputs & selects) */
         input:disabled,
-        select:disabled {
-            @apply bg-gray-300 text-gray-500 cursor-not-allowed opacity-50;
-        }
-
-        /* Disabled Remove buttons and other section buttons */
-        #pdf-list .remove-btn:disabled,
-        #pdf-section button:disabled,
-        #model-section button:disabled {
-            @apply bg-gray-300 text-gray-600 cursor-not-allowed opacity-50;
+        select:disabled,
+        textarea:disabled {
+            @apply bg-gray-200 text-gray-500 cursor-not-allowed opacity-60;
         }
     }
-</style>
+    </style>
 </head>
 
-<body class="bg-gray-100 text-gray-800 font-sans leading-relaxed p-6">
-    <div class="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-md">
-        <h1 class="text-2xl font-semibold text-gray-700 mb-4 flex items-center space-x-4 justify-between">
-            <span>Gemini QA Configuration</span>
-            <span id="state-status" class="status-badge configuring" aria-live="polite">
-                Configuring
-            </span>
-        </h1>
+<body class="bg-slate-100 text-gray-800 font-sans leading-relaxed p-4 md:p-6 min-h-screen">
+    <div class="max-w-4xl mx-auto bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-200 space-y-5">
+        <!-- Header -->
+        <header class="flex items-center justify-between border-b border-gray-200 pb-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <i class="fas fa-brain text-indigo-600"></i>
+                    <span>Screenshot AI</span>
+                </h1>
+                <p class="text-xs text-gray-500 mt-0.5">Ultra-fast screenshot-based AI assistant</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="state-status" class="status-badge configuring" aria-live="polite">
+                    <i class="fas fa-gear mr-1"></i> Configuring
+                </span>
+            </div>
+        </header>
 
-        <!-- PDF Section -->
-        <section id="pdf-section" class="bg-gray-100 p-6 rounded-lg mb-8 space-y-4">
-            <h2 class="text-xl font-medium text-gray-600 border-b border-gray-200 pb-2">
-                PDF Context Files
-            </h2>
+        <!-- Main Configuration Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- AI Model -->
+            <div class="bg-slate-50 p-3.5 rounded-xl border border-gray-200 space-y-1.5">
+                <label for="model-select" class="block text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                    <i class="fas fa-microchip text-indigo-500"></i>
+                    AI Model
+                </label>
+                <div class="relative">
+                    <select id="model-select"
+                        class="w-full appearance-none cursor-pointer bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 pr-7 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400 truncate">
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-gray-400">
+                        <i class="fas fa-chevron-down text-xs"></i>
+                    </div>
+                </div>
+            </div>
 
-            <ul id="pdf-list" class="space-y-2">
-                <!-- JS will inject list elements here -->
-            </ul>
+            <!-- Capture Mode -->
+            <div class="bg-slate-50 p-3.5 rounded-xl border border-gray-200 space-y-1.5">
+                <label for="capture-mode-select" class="block text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                    <i class="fas fa-camera text-sky-500"></i>
+                    Capture Mode
+                </label>
+                <div class="relative">
+                    <select id="capture-mode-select"
+                        class="w-full appearance-none cursor-pointer bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 pr-7 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                        <option value="cursor_monitor">🎯 Cursor Monitor</option>
+                        <option value="active_window">🪟 Active Window</option>
+                        <option value="all_screens">🖥️ All Screens</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-gray-400">
+                        <i class="fas fa-chevron-down text-xs"></i>
+                    </div>
+                </div>
+            </div>
 
-            <div class="flex flex-wrap gap-3">
-                <input type="text" id="pdf-input"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
-                    placeholder="Add local path or URL…" />
-                <button onclick="addPdfSource()"
-                    class="px-5 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition flex items-center">
-                    <i class="fa fa-plus text-xl mr-1"></i>
-                    Add PDF
-                </button>
-                <button onclick="browsePdfFile()"
-                    class="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition flex items-center">
-                    <i class="fa fa-file-pdf text-xl mr-1"></i>
-                    Browse File
+            <!-- Custom Hotkey (Interactive Auto-Recorder) -->
+            <div class="bg-slate-50 p-3.5 rounded-xl border border-gray-200 space-y-1.5">
+                <div class="flex items-center justify-between">
+                    <label for="hotkey-input" class="block text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                        <i class="fas fa-keyboard text-emerald-500"></i>
+                        Hotkey
+                    </label>
+                    <span id="hotkey-recording-indicator" class="hidden text-[10px] text-indigo-600 font-semibold animate-pulse">
+                        ● Listening keys…
+                    </span>
+                </div>
+                <div class="flex gap-1.5">
+                    <input type="text" id="hotkey-input" readonly
+                        class="flex-1 min-w-0 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400 uppercase font-mono cursor-pointer select-none"
+                        title="Click to record new shortcut"
+                        placeholder="Click to record…" />
+                    <button id="apply-hotkey-btn" onclick="applyHotkey()"
+                        class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition flex items-center gap-1 flex-shrink-0"
+                        title="Save hotkey">
+                        <i class="fas fa-check"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prompt Preset & Editor -->
+        <section id="prompt-section" class="bg-slate-50 p-4 rounded-xl border border-gray-200 space-y-3">
+            <div class="flex items-center justify-between">
+                <label for="prompt-select" class="block text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                    <i class="fas fa-scroll text-amber-500"></i>
+                    Prompt Preset & Editor
+                </label>
+                <button type="button" id="new-prompt-btn" onclick="newPrompt()"
+                    class="px-2.5 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+                    <i class="fas fa-plus"></i> New Preset
                 </button>
             </div>
-        </section>
-
-        <!-- Model Section -->
-        <section id="model-section" class="bg-gray-100 p-6 rounded-lg mb-8 space-y-4">
-            <h2 class="text-xl font-medium text-gray-600 border-b border-gray-200 pb-2">
-                AI Model
-            </h2>
 
             <div class="relative">
-                <select id="model-select"
-                    class="w-full appearance-none cursor-pointer bg-white border border-gray-300 rounded-md px-4 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-300">
-                    <!-- JS will populate options -->
+                <select id="prompt-select"
+                    class="w-full appearance-none cursor-pointer bg-white border border-gray-300 rounded-lg px-3 py-2 pr-8 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400">
                 </select>
-                <div class="pointer-events-none absolute inset-y-0 right-3 flex items-center">
-                    <i class="fas fa-chevron-down text-gray-500"></i>
+                <div class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-gray-400">
+                    <i class="fas fa-chevron-down text-xs"></i>
                 </div>
+            </div>
+
+            <textarea id="prompt-content" rows="4"
+                class="w-full font-mono text-xs p-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 leading-relaxed resize-y"
+                placeholder="Enter prompt instructions here..."></textarea>
+
+            <div class="flex flex-wrap gap-2 items-center">
+                <input type="text" id="new-prompt-name"
+                    class="flex-1 min-w-[200px] px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                    placeholder="Preset file name (e.g. custom_prompt.txt)" />
+                <button id="save-prompt-btn" onclick="savePrompt()"
+                    class="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 transition flex items-center gap-1.5 flex-shrink-0">
+                    <i class="fas fa-save"></i> Save Prompt
+                </button>
             </div>
         </section>
 
-        <!-- Token Usage -->
-        <section id="tokens-section" class="bg-gray-100 p-6 rounded-lg mb-8 space-y-4">
-            <h2 class="text-xl font-medium text-gray-600 border-b border-gray-200 pb-2 mb-4">
-                Token Usage
+        <!-- PDF Context Files Section -->
+        <section id="pdf-section" class="bg-slate-50 p-4 rounded-xl border border-gray-200 space-y-2.5">
+            <h2 class="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                <i class="fas fa-file-pdf text-red-500"></i>
+                PDF Context Files (Optional)
             </h2>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <!-- Total Tokens Card -->
-                <div class="flex items-center bg-white shadow rounded-lg p-5">
-                    <div class="p-3 bg-blue-100 text-blue-600 rounded-full">
-                        <i class="fas fa-coins text-2xl"></i>
-                    </div>
-                    <div class="ml-4">
-                        <p class="text-3xl font-bold text-gray-800" id="total-tokens">0</p>
-                        <p class="text-sm text-gray-500 mt-1">Total Tokens</p>
-                    </div>
-                </div>
+            <ul id="pdf-list" class="space-y-1.5 max-h-24 overflow-y-auto">
+                <!-- Populated by JS -->
+            </ul>
 
-                <!-- Today's Tokens Card -->
-                <div class="flex items-center bg-white shadow rounded-lg p-5">
-                    <div class="p-3 bg-green-100 text-green-600 rounded-full">
-                        <i class="far fa-calendar-days text-2xl"></i>
-                    </div>
-                    <div class="ml-4">
-                        <p class="text-3xl font-bold text-gray-800" id="today-tokens">0</p>
-                        <p class="text-sm text-gray-500 mt-1">Tokens Today</p>
-                    </div>
-                </div>
+            <div class="flex flex-wrap gap-2 pt-0.5">
+                <input type="text" id="pdf-input"
+                    class="flex-1 min-w-[200px] px-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                    placeholder="Local PDF path or URL…" />
+                <button onclick="addPdfSource()"
+                    class="px-3.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition flex items-center gap-1.5">
+                    <i class="fa fa-plus"></i> Add
+                </button>
+                <button onclick="browsePdfFile()"
+                    class="px-3.5 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 transition flex items-center gap-1.5">
+                    <i class="fa fa-folder-open"></i> Browse
+                </button>
             </div>
         </section>
 
-        <!-- Logs -->
-        <section id="logs-section" class="bg-gray-100 p-6 rounded-lg mb-8 space-y-2">
-            <h2 class="text-xl font-medium text-gray-600 border-b border-gray-200 pb-2">
-                Logs
-            </h2>
-            <pre id="log-output"
-                class="w-full font-medium h-64 p-4 bg-gray-900 text-gray-100 font-mono rounded-md overflow-y-auto whitespace-pre-wrap break-words"></pre>
-            <div class="flex justify-end mt-2">
-            <button onclick="clearLogs()"
-                class="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition">
-                <i class="fas fa-trash-alt mr-1"></i>
-                Clear Logs
-            </button>
-            <button onclick="copyLogs()"
-                class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition ml-2">
-                <i class="fas fa-copy mr-1"></i>
-                Copy Logs
-            </button>
+        <!-- Token Usage Cards -->
+        <div class="grid grid-cols-2 gap-4">
+            <div class="flex items-center bg-indigo-50/70 border border-indigo-100 rounded-xl p-3">
+                <div class="p-2.5 bg-indigo-100 text-indigo-600 rounded-lg">
+                    <i class="fas fa-coins text-lg"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-xl font-bold text-gray-900" id="total-tokens">0</p>
+                    <p class="text-xs text-gray-500">Total Tokens</p>
+                </div>
+            </div>
+
+            <div class="flex items-center bg-emerald-50/70 border border-emerald-100 rounded-xl p-3">
+                <div class="p-2.5 bg-emerald-100 text-emerald-600 rounded-lg">
+                    <i class="far fa-calendar-days text-lg"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-xl font-bold text-gray-900" id="today-tokens">0</p>
+                    <p class="text-xs text-gray-500">Tokens Today</p>
+                </div>
+            </div>
         </div>
-        </section>
 
-        <!-- Controls -->
-        <section class="controls text-center space-x-4 space-y-4">
+        <!-- Tabs: Logs, History & API Keys -->
+        <div class="space-y-2.5">
+            <div class="flex border-b border-gray-200 text-xs font-semibold">
+                <button id="tab-btn-logs" onclick="switchTab('logs')"
+                    class="px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 transition">
+                    <i class="fas fa-terminal text-xs"></i> Logs
+                </button>
+                <button id="tab-btn-history" onclick="switchTab('history')"
+                    class="px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex items-center gap-2 transition">
+                    <i class="fas fa-clock-rotate-left text-xs"></i> History
+                    <span id="history-count" class="px-1.5 py-0.2 bg-gray-200 text-gray-700 rounded-full text-xs font-normal">0</span>
+                </button>
+                <button id="tab-btn-keys" onclick="switchTab('keys')"
+                    class="px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex items-center gap-2 transition">
+                    <i class="fas fa-key text-xs"></i> API Keys
+                    <span id="keys-count" class="px-1.5 py-0.2 bg-gray-200 text-gray-700 rounded-full text-xs font-normal">0</span>
+                </button>
+            </div>
+
+            <!-- Tab Content: Logs -->
+            <div id="tab-content-logs" class="space-y-2">
+                <div class="flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-xl border border-gray-200">
+                    <div class="flex items-center gap-2">
+                        <label for="log-level-select" class="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                            <i class="fas fa-filter text-indigo-500"></i> Log Level:
+                        </label>
+                        <div class="relative">
+                            <select id="log-level-select" onchange="changeLogLevel(this.value)"
+                                class="appearance-none cursor-pointer bg-white border border-gray-300 rounded-lg px-2.5 py-1 pr-6 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                                <option value="DEBUG">🔍 Debug</option>
+                                <option value="INFO" selected>ℹ️ Info</option>
+                                <option value="WARNING">⚠️ Warning</option>
+                                <option value="ERROR">🛑 Error</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-gray-400">
+                                <i class="fas fa-chevron-down text-[10px]"></i>
+                            </div>
+                        </div>
+                        <span id="log-count-badge" class="text-[11px] text-gray-500 font-mono">0 lines</span>
+                    </div>
+
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="clearLogs()"
+                            class="px-2.5 py-1 bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-300 transition flex items-center gap-1"
+                            title="Clear all logs">
+                            <i class="fas fa-trash-alt"></i> Clear
+                        </button>
+                        <button onclick="copyLogs()"
+                            class="px-2.5 py-1 bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-300 transition flex items-center gap-1"
+                            title="Copy visible logs">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                </div>
+
+                <pre id="log-output" class="ansi-log font-medium"></pre>
+            </div>
+
+            <!-- Tab Content: History -->
+            <div id="tab-content-history" class="hidden space-y-2">
+                <div id="history-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    <p class="text-xs text-gray-400 text-center py-6">No previous queries yet.</p>
+                </div>
+                <div class="flex justify-end">
+                    <button onclick="clearHistory()"
+                        class="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-300 transition flex items-center gap-1">
+                        <i class="fas fa-trash-alt"></i> Clear History
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tab Content: API Keys -->
+            <div id="tab-content-keys" class="hidden space-y-3">
+                <!-- Add new key form -->
+                <div class="flex gap-2 items-center bg-slate-50 p-3 rounded-xl border border-gray-200">
+                    <input type="password" id="new-api-key-input"
+                        class="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                        placeholder="Paste new Gemini API key (AIzaSy…)" />
+                    <button onclick="addApiKey()"
+                        class="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition flex items-center gap-1.5 flex-shrink-0">
+                        <i class="fas fa-plus"></i> Add API Key
+                    </button>
+                </div>
+
+                <!-- API Keys List / Table -->
+                <div id="api-keys-list" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="pt-2 flex items-center justify-center gap-4">
             <button id="start-stop-button" onclick="toggleListening()"
-                class="px-6 py-3 bg-green-600 text-white rounded-md text-lg font-medium hover:bg-green-700 transition">
-                <i class="fas fa-trash-alt mr-1"></i>
-                Start Listening
+                class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 shadow-md transition flex items-center gap-2">
+                <i class="fas fa-play"></i> Start Listening
             </button>
             <button id="hide-button" onclick="toggleVisibility()"
-                class="px-6 py-3 bg-gray-500 text-white rounded-md text-lg font-medium hover:bg-gray-600 transition">
-                <i class="fas fa-eye-slash mr-1"></i>
-                Hide Window
+                class="px-6 py-2.5 bg-gray-600 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition flex items-center gap-2">
+                <i class="fas fa-eye-slash"></i> Hide Window
             </button>
-        </section>
+        </div>
+    </div>
+
+    <!-- Image Preview Lightbox Modal -->
+    <div id="image-modal" class="hidden fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3" onclick="if(event.target === this) closeImageModal()">
+        <div class="relative bg-gray-900 border border-gray-700 rounded-2xl w-[96vw] max-w-5xl h-[92vh] flex flex-col p-4 shadow-2xl overflow-hidden">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-2.5 border-b border-gray-800 text-gray-200 flex-shrink-0">
+                <span class="text-sm font-semibold flex items-center gap-2">
+                    <i class="fas fa-image text-sky-400"></i> Screenshot Preview
+                </span>
+
+                <!-- Zoom & View Controls Toolbar -->
+                <div class="flex items-center gap-1.5 bg-gray-800/90 px-2 py-1 rounded-lg border border-gray-700">
+                    <button type="button" onclick="zoomModalImage(1.25)"
+                        class="w-7 h-7 flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-xs transition"
+                        title="Zoom In (+)">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button type="button" onclick="zoomModalImage(0.8)"
+                        class="w-7 h-7 flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-xs transition"
+                        title="Zoom Out (-)">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                    <button type="button" onclick="setModalImageZoom(1.0)"
+                        class="px-2 h-7 flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-xs font-semibold transition"
+                        title="100% Native Resolution (1:1)">
+                        1:1
+                    </button>
+                    <button type="button" onclick="resetModalImageZoom()"
+                        class="px-2 h-7 flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-xs font-semibold transition flex items-center gap-1"
+                        title="Fit to Window">
+                        <i class="fas fa-compress-arrows-alt text-[10px]"></i> Fit
+                    </button>
+                    <span id="modal-zoom-badge" class="px-2 py-0.5 text-sky-400 font-mono text-xs font-semibold min-w-[55px] text-center">Fit</span>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button id="modal-open-external-btn"
+                        class="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5"
+                        title="Open with system image viewer">
+                        <i class="fas fa-external-link-alt"></i> External
+                    </button>
+                    <button type="button" onclick="closeImageModal()"
+                        class="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-semibold transition"
+                        title="Close preview (Esc)">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Viewport container (Pan & Zoom) -->
+            <div id="modal-viewport"
+                class="flex-1 relative overflow-hidden my-2 flex items-center justify-center bg-black/60 rounded-xl border border-gray-800 cursor-grab select-none">
+                <img id="modal-img"
+                    class="max-w-none transition-transform origin-center pointer-events-none select-none rounded shadow-md"
+                    src="" alt="Screenshot" draggable="false" />
+            </div>
+
+            <!-- Modal Footer Tip -->
+            <div class="flex items-center justify-between text-[11px] text-gray-400 pt-2 border-t border-gray-800 flex-shrink-0">
+                <span><i class="fas fa-mouse text-gray-500 mr-1"></i> Scroll wheel to zoom &bull; Click &amp; drag to pan &bull; Double-click to toggle 100% / Fit</span>
+                <span id="modal-img-resolution" class="font-mono text-gray-500 text-[10px]"></span>
+            </div>
+        </div>
     </div>
 
     <script src="ui.js"></script>
